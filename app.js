@@ -3,6 +3,8 @@ let channel = null;
 let scanner = null;
 
 const CHUNK_SIZE = 64 * 1024;
+const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
+const MAX_FILE_NAME_LENGTH = 255;
 
 const $ = id => document.getElementById(id);
 
@@ -107,16 +109,22 @@ $("joinBtn").onclick = async () => {
 
   scanner = new Html5Qrcode("reader");
 
-  scanner.start(
+  await scanner.start(
     { facingMode: "environment" },
     {
       fps: 10,
       qrbox: 250
     },
     async decodedText => {
-      await scanner.stop();
+      await scanner.pause(true);
 
-      await joinConnection(decodedText);
+      try {
+        await joinConnection(decodedText);
+        await scanner.stop();
+      } catch {
+        $("joinStatus").textContent = "Invalid QR code. Try again.";
+        await scanner.resume();
+      }
     },
     () => {}
   );
@@ -127,7 +135,11 @@ async function joinConnection(qrData) {
 
   createPeer();
 
-  const offer = JSON.parse(qrData);
+  const offer = parseJsonObject(qrData);
+
+  if (!isValidSessionDescription(offer, "offer")) {
+    throw new Error("Invalid offer");
+  }
 
   await pc.setRemoteDescription(offer);
 
@@ -215,14 +227,25 @@ $("createStatus").onclick = async () => {
       qrbox: 250
     },
     async decodedText => {
-      await answerScanner.stop();
+      await answerScanner.pause(true);
 
-      const answer = JSON.parse(decodedText);
+      try {
+        const answer = parseJsonObject(decodedText);
 
-      await pc.setRemoteDescription(answer);
+        if (!isValidSessionDescription(answer, "answer")) {
+          throw new Error("Invalid answer");
+        }
 
-      $("createStatus").textContent =
-        "Connecting...";
+        await pc.setRemoteDescription(answer);
+        await answerScanner.stop();
+
+        $("createStatus").textContent =
+          "Connecting...";
+      } catch {
+        $("createStatus").textContent =
+          "Invalid answer QR. Please scan again.";
+        await answerScanner.resume();
+      }
     },
     () => {}
   );
@@ -234,7 +257,7 @@ $("createStatus").onclick = async () => {
 
 $("fileInput").onchange = event => {
   for (const file of event.target.files) {
-    sendFile(file);
+    queueFile(file);
   }
 };
 
@@ -246,9 +269,36 @@ $("dropZone").ondrop = event => {
   event.preventDefault();
 
   for (const file of event.dataTransfer.files) {
-    sendFile(file);
+    queueFile(file);
   }
 };
+
+const sendQueue = [];
+let sendingInProgress = false;
+
+function queueFile(file) {
+  if (!isValidOutgoingFile(file)) {
+    alert(`Skipping invalid file: ${file?.name || "unknown"}`);
+    return;
+  }
+
+  sendQueue.push(file);
+  processSendQueue();
+}
+
+async function processSendQueue() {
+  if (sendingInProgress) return;
+  sendingInProgress = true;
+
+  try {
+    while (sendQueue.length > 0) {
+      const file = sendQueue.shift();
+      await sendFile(file);
+    }
+  } finally {
+    sendingInProgress = false;
+  }
+}
 
 async function sendFile(file) {
   if (!channel || channel.readyState !== "open") {
@@ -311,14 +361,19 @@ async function sendFile(file) {
  */
 
 const incoming = {};
+let activeIncomingId = null;
 
 function receiveMessage(event) {
 
   if (typeof event.data === "string") {
 
-    const message = JSON.parse(event.data);
+    const message = parseJsonObject(event.data);
+    if (!message || !isValidControlMessage(message)) return;
 
     if (message.type === "file-start") {
+      if (activeIncomingId) return;
+      if (!isValidIncomingStart(message)) return;
+      if (incoming[message.id]) return;
 
       incoming[message.id] = {
         name: message.name,
@@ -327,6 +382,7 @@ function receiveMessage(event) {
         chunks: [],
         received: 0
       };
+      activeIncomingId = message.id;
 
       updateTransfer(
         message.id,
@@ -338,8 +394,11 @@ function receiveMessage(event) {
     }
 
     if (message.type === "file-end") {
+      if (!activeIncomingId || message.id !== activeIncomingId) return;
 
       const file = incoming[message.id];
+      if (!file) return;
+      if (file.received !== file.size) return;
 
       const blob = new Blob(file.chunks, {
         type: file.mime
@@ -362,6 +421,7 @@ function receiveMessage(event) {
       $("transfers").appendChild(div);
 
       delete incoming[message.id];
+      activeIncomingId = null;
     }
 
     return;
@@ -371,15 +431,22 @@ function receiveMessage(event) {
    * Binary chunk
    */
 
-  const current = Object.values(incoming)[0];
+  const current = activeIncomingId
+    ? incoming[activeIncomingId]
+    : null;
 
   if (!current) return;
 
   current.chunks.push(event.data);
   current.received += event.data.byteLength;
+  if (current.received > current.size) {
+    delete incoming[activeIncomingId];
+    activeIncomingId = null;
+    return;
+  }
 
   updateTransfer(
-    Object.keys(incoming)[0],
+    activeIncomingId,
     current.name,
     current.received,
     current.size,
@@ -441,11 +508,75 @@ function formatBytes(bytes) {
 }
 
 function escapeHtml(value) {
-  return value
+  return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function parseJsonObject(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object"
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isValidSessionDescription(value, expectedType) {
+  return Boolean(
+    value &&
+    value.type === expectedType &&
+    typeof value.sdp === "string" &&
+    value.sdp.length > 0 &&
+    value.sdp.length < 200000
+  );
+}
+
+function isValidControlMessage(message) {
+  if (!message || typeof message !== "object") return false;
+  if (
+    message.type !== "file-start" &&
+    message.type !== "file-end"
+  ) return false;
+  if (!isValidTransferId(message.id)) return false;
+  return true;
+}
+
+function isValidIncomingStart(message) {
+  return (
+    typeof message.name === "string" &&
+    message.name.length > 0 &&
+    message.name.length <= MAX_FILE_NAME_LENGTH &&
+    Number.isInteger(message.size) &&
+    message.size >= 0 &&
+    message.size <= MAX_FILE_SIZE &&
+    typeof message.mime === "string" &&
+    message.mime.length <= 255
+  );
+}
+
+function isValidOutgoingFile(file) {
+  return Boolean(
+    file &&
+    typeof file.name === "string" &&
+    file.name.length > 0 &&
+    file.name.length <= MAX_FILE_NAME_LENGTH &&
+    Number.isInteger(file.size) &&
+    file.size >= 0 &&
+    file.size <= MAX_FILE_SIZE
+  );
+}
+
+function isValidTransferId(id) {
+  return (
+    typeof id === "string" &&
+    id.length > 0 &&
+    id.length <= 64
+  );
 }
 
 $("cancelCreate").onclick = () => location.reload();

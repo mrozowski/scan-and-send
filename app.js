@@ -17,6 +17,12 @@ function show(id) {
   $(id).classList.remove("hidden");
 }
 
+function stripIceCandidates(sdp) {
+  return sdp.split("\n")
+    .filter(line => !line.startsWith("a=candidate:"))
+    .join("\n");
+}
+
 function randomCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let result = "";
@@ -88,15 +94,15 @@ $("createBtn").onclick = async () => {
 
   await waitForIce();
 
-  const data = JSON.stringify(pc.localDescription);
+  const desc = pc.localDescription;
+  const data = JSON.stringify({
+    type: desc.type,
+    sdp: stripIceCandidates(desc.sdp)
+  });
 
   $("qrcode").innerHTML = "";
 
-  new QRCode($("qrcode"), {
-    text: data,
-    width: 280,
-    height: 280
-  });
+  makeQR(data, $("qrcode"));
 
   $("shortCode").textContent = randomCode();
 };
@@ -108,7 +114,7 @@ $("createBtn").onclick = async () => {
 $("joinBtn").onclick = async () => {
   show("join");
 
-  scanner = new Html5Qrcode("reader");
+  scanner = new QRScanner("reader");
 
   await scanner.start(
     { facingMode: "environment" },
@@ -150,17 +156,17 @@ async function joinConnection(qrData) {
 
   await waitForIce();
 
-  const answerData = JSON.stringify(pc.localDescription);
+  const answerDesc = pc.localDescription;
+  const answerData = JSON.stringify({
+    type: answerDesc.type,
+    sdp: stripIceCandidates(answerDesc.sdp)
+  });
 
   show("answer");
 
   $("answerQr").innerHTML = "";
 
-  new QRCode($("answerQr"), {
-    text: answerData,
-    width: 280,
-    height: 280
-  });
+  makeQR(answerData, $("answerQr"));
 
   $("answerStatus").textContent =
     "Show this QR code to the first device.";
@@ -219,7 +225,7 @@ $("createStatus").onclick = async () => {
 
   $("create").appendChild(reader);
 
-  const answerScanner = new Html5Qrcode("answerReader");
+  const answerScanner = new QRScanner("answerReader");
 
   await answerScanner.start(
     { facingMode: "environment" },

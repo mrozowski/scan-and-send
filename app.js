@@ -5,6 +5,7 @@ let scanner = null;
 const CHUNK_SIZE = 64 * 1024;
 const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
 const MAX_FILE_NAME_LENGTH = 255;
+const MAX_TOTAL_INCOMING = 2 * 1024 * 1024 * 1024; // 2 GB total in-memory limit
 
 const $ = id => document.getElementById(id);
 
@@ -375,6 +376,11 @@ function receiveMessage(event) {
       if (!isValidIncomingStart(message)) return;
       if (incoming[message.id]) return;
 
+      const totalQueued = Object.values(incoming).reduce(
+        (sum, f) => sum + f.size, 0
+      );
+      if (totalQueued + message.size > MAX_TOTAL_INCOMING) return;
+
       incoming[message.id] = {
         name: message.name,
         size: message.size,
@@ -437,13 +443,14 @@ function receiveMessage(event) {
 
   if (!current) return;
 
-  current.chunks.push(event.data);
-  current.received += event.data.byteLength;
-  if (current.received > current.size) {
+  if (current.received + event.data.byteLength > current.size) {
     delete incoming[activeIncomingId];
     activeIncomingId = null;
     return;
   }
+
+  current.chunks.push(event.data);
+  current.received += event.data.byteLength;
 
   updateTransfer(
     activeIncomingId,

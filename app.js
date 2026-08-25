@@ -17,21 +17,11 @@ function show(id) {
   $(id).classList.remove("hidden");
 }
 
-function stripIceCandidates(sdp) {
-  return sdp.split("\n")
-    .filter(line => !line.startsWith("a=candidate:"))
-    .join("\n");
-}
-
-function randomCode() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let result = "";
-
-  for (let i = 0; i < 5; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
-  }
-
-  return result;
+function encodeDescription(desc) {
+  return JSON.stringify({
+    type: desc.type,
+    sdp: desc.sdp
+  });
 }
 
 function createPeer() {
@@ -95,16 +85,15 @@ $("createBtn").onclick = async () => {
   await waitForIce();
 
   const desc = pc.localDescription;
-  const data = JSON.stringify({
-    type: desc.type,
-    sdp: stripIceCandidates(desc.sdp)
-  });
+  const data = encodeDescription(desc);
 
   $("qrcode").innerHTML = "";
 
   makeQR(data, $("qrcode"));
 
-  $("shortCode").textContent = randomCode();
+  $("offerCode").value = data;
+  $("createStatus").textContent =
+    "Scan QR code or share connection code.";
 };
 
 /*
@@ -116,25 +105,50 @@ $("joinBtn").onclick = async () => {
 
   scanner = new QRScanner("reader");
 
-  await scanner.start(
-    { facingMode: "environment" },
-    {
-      fps: 10,
-      qrbox: 250
-    },
-    async decodedText => {
-      await scanner.pause(true);
+  try {
+    await scanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: 250
+      },
+      async decodedText => {
+        await scanner.pause(true);
 
+        try {
+          await joinConnection(decodedText);
+          await scanner.stop();
+        } catch {
+          $("joinStatus").textContent = "Invalid QR code. Try again.";
+          await scanner.resume();
+        }
+      },
+      () => {}
+    );
+  } catch {
+    $("joinStatus").textContent =
+      "QR scan unavailable. Paste connection code below.";
+  }
+};
+
+$("joinWithCodeBtn").onclick = async () => {
+  const raw = $("joinCodeInput").value.trim();
+
+  if (!raw) {
+    $("joinStatus").textContent = "Paste a connection code first.";
+    return;
+  }
+
+  try {
+    await joinConnection(raw);
+    if (scanner) {
       try {
-        await joinConnection(decodedText);
         await scanner.stop();
-      } catch {
-        $("joinStatus").textContent = "Invalid QR code. Try again.";
-        await scanner.resume();
-      }
-    },
-    () => {}
-  );
+      } catch {}
+    }
+  } catch {
+    $("joinStatus").textContent = "Invalid connection code.";
+  }
 };
 
 async function joinConnection(qrData) {
@@ -157,16 +171,14 @@ async function joinConnection(qrData) {
   await waitForIce();
 
   const answerDesc = pc.localDescription;
-  const answerData = JSON.stringify({
-    type: answerDesc.type,
-    sdp: stripIceCandidates(answerDesc.sdp)
-  });
+  const answerData = encodeDescription(answerDesc);
 
   show("answer");
 
   $("answerQr").innerHTML = "";
 
   makeQR(answerData, $("answerQr"));
+  $("answerCode").value = answerData;
 
   $("answerStatus").textContent =
     "Show this QR code to the first device.";
@@ -237,13 +249,7 @@ $("createStatus").onclick = async () => {
       await answerScanner.pause(true);
 
       try {
-        const answer = parseJsonObject(decodedText);
-
-        if (!isValidSessionDescription(answer, "answer")) {
-          throw new Error("Invalid answer");
-        }
-
-        await pc.setRemoteDescription(answer);
+        await applyAnswerCode(decodedText);
         await answerScanner.stop();
 
         $("createStatus").textContent =
@@ -257,6 +263,32 @@ $("createStatus").onclick = async () => {
     () => {}
   );
 };
+
+$("applyAnswerCode").onclick = async () => {
+  const raw = $("answerCodeInput").value.trim();
+
+  if (!raw) {
+    $("createStatus").textContent = "Paste answer code first.";
+    return;
+  }
+
+  try {
+    await applyAnswerCode(raw);
+    $("createStatus").textContent = "Connecting...";
+  } catch {
+    $("createStatus").textContent = "Invalid answer code.";
+  }
+};
+
+async function applyAnswerCode(raw) {
+  const answer = parseJsonObject(raw);
+
+  if (!isValidSessionDescription(answer, "answer")) {
+    throw new Error("Invalid answer");
+  }
+
+  await pc.setRemoteDescription(answer);
+}
 
 /*
  * FILE SENDING

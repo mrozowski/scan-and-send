@@ -28,7 +28,12 @@
 
     <p>Scan this code with the other device.</p>
 
-    <div class="code" id="shortCode"></div>
+    <p class="smallLabel">Or copy this connection code:</p>
+    <textarea id="offerCode" class="codeInput" rows="5" readonly></textarea>
+
+    <p class="smallLabel">Paste answer code from the other device:</p>
+    <textarea id="answerCodeInput" class="codeInput" rows="5"></textarea>
+    <button id="applyAnswerCode" class="secondary">Connect using answer code</button>
 
     <p id="createStatus">Waiting for connection...</p>
 
@@ -40,6 +45,10 @@
     <h2>Scan QR code</h2>
 
     <div id="reader"></div>
+
+    <p class="smallLabel">Or paste connection code:</p>
+    <textarea id="joinCodeInput" class="codeInput" rows="5"></textarea>
+    <button id="joinWithCodeBtn" class="secondary">Connect using code</button>
 
     <p id="joinStatus">Point your camera at the QR code.</p>
 
@@ -53,6 +62,9 @@
     <p>Show this QR code to the other device.</p>
 
     <div id="answerQr"></div>
+
+    <p class="smallLabel">Or copy this answer code:</p>
+    <textarea id="answerCode" class="codeInput" rows="5" readonly></textarea>
 
     <p id="answerStatus">Waiting for connection...</p>
   </section>

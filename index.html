@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LocalDrop</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- QR generation -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+  <!-- QR scanning -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+
+<body>
+
+<main>
+  <h1>Scan & Send</h1>
+  <p class="subtitle">Direct device-to-device file sharing</p>
+
+  <section id="home">
+    <button id="createBtn">Create connection</button>
+    <button id="joinBtn" class="secondary">Scan QR</button>
+  </section>
+
+  <!-- CREATE -->
+  <section id="create" class="hidden">
+    <h2>Scan this QR code</h2>
+    <div id="qrcode"></div>
+
+    <p>Scan this code with the other device.</p>
+
+    <div class="code" id="shortCode"></div>
+
+    <p id="createStatus">Waiting for connection...</p>
+
+    <button id="cancelCreate" class="secondary">Cancel</button>
+  </section>
+
+  <!-- JOIN -->
+  <section id="join" class="hidden">
+    <h2>Scan QR code</h2>
+
+    <div id="reader"></div>
+
+    <p id="joinStatus">Point your camera at the QR code.</p>
+
+    <button id="cancelJoin" class="secondary">Cancel</button>
+  </section>
+
+  <!-- ANSWER -->
+  <section id="answer" class="hidden">
+    <h2>Almost connected</h2>
+
+    <p>Show this QR code to the other device.</p>
+
+    <div id="answerQr"></div>
+
+    <p id="answerStatus">Waiting for connection...</p>
+  </section>
+
+  <!-- CONNECTED -->
+  <section id="connected" class="hidden">
+    <h2>✓ Connected</h2>
+
+    <p id="connectionInfo">Ready to transfer files.</p>
+
+    <label class="fileButton">
+      Select files
+      <input type="file" id="fileInput" multiple>
+    </label>
+
+    <div id="dropZone">
+      Or drag files here
+    </div>
+
+    <div id="transfers"></div>
+  </section>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
